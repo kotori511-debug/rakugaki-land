@@ -68,6 +68,16 @@
   #albumBtn{position:absolute;left:max(14px, env(safe-area-inset-left));top:max(14px, env(safe-area-inset-top));background:#B7E5FF;}
   #topRight{position:absolute;right:max(14px, env(safe-area-inset-right));top:max(14px, env(safe-area-inset-top));display:flex;gap:10px;align-items:center;}
   #nightBtn{background:#E8DDFF;}
+  #magicBtn{position:absolute;right:max(14px, env(safe-area-inset-right));bottom:max(14px, env(safe-area-inset-bottom));background:#FFE1F0;}
+  #magicBtn.armed{background:#FF9ECF;animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.1);}}
+  #magicBanner{
+    position:absolute;top:max(88px, calc(env(safe-area-inset-top) + 74px));left:50%;transform:translateX(-50%);
+    background:rgba(255,255,255,.92);border:3px solid var(--ink);border-radius:16px;
+    padding:10px 18px;font-size:16px;font-weight:800;color:var(--ink);
+    display:none;white-space:nowrap;max-width:92vw;
+  }
+  #magicBanner.show{display:block;}
   .chip{
     padding:8px 14px;border-radius:14px;border:3px solid var(--ink);
     background:rgba(255,255,255,.88);font-size:14px;font-weight:800;color:var(--ink);
@@ -111,9 +121,12 @@
   <button id="albumBtn" class="fab" title="ずかん">📖</button>
   <div id="topRight">
     <button id="byeBtn" class="chip">みんな バイバイ 👋</button>
+    <button id="sceneBtn" class="fab" title="ばしょをかえる">🌼</button>
     <button id="nightBtn" class="fab" title="よる／ひる">🌙</button>
   </div>
   <button id="togglePad" class="fab">⬇️</button>
+  <button id="magicBtn" class="fab" title="へんしん">🪄</button>
+  <div id="magicBanner">🪄 へんしんさせたい キャラを タッチしてね!</div>
 
   <div id="pad">
     <div id="padTitle">✏️ おえかきちょう ✏️</div>
@@ -212,6 +225,45 @@ function sndChirp(base, delay=0){ ensureAudio();
   tone(base*1.26, delay+0.11, 0.13, "triangle", 0.2);
 }
 function sndTwinkle(){ ensureAudio(); [1318,1568,2093].forEach((f,i)=>tone(f, i*0.12, 0.3, "sine", 0.12)); }
+
+/* ================= AIへんしん設定 =================
+ * GASプロキシのWebアプリURLを設定すると、🪄でClaude APIによる
+ * 絵の判定(名前・種類・動き方・コメント)が有効になる。
+ * 空文字のままなら、オフラインへんしん(目と手足が生える)のみ動作。 */
+const GAS_ENDPOINT = ""; // 例: "https://script.google.com/macros/s/XXXXX/exec"
+
+/* ================= おしゃべり(Web Speech API) ================= */
+const DAY_LINES = ["こんにちは!","あそぼ〜!","ジャンプ だいすき!","きょうも いいてんき!","えへへ〜","なにして あそぶ?","だーいすき!","くすぐったいよ〜!"];
+const NIGHT_LINES = ["わっ! びっくりした!","ねてたのに〜","むにゃむにゃ…","もうあさ…?"];
+const HELLO_LINES = ["うまれたよ〜!","はじめまして!","やっほー!"];
+const OFFLINE_NAMES = ["ぷにちゃん","もこもこ","ぴょんた","くるりん","ぽんぽこ","にこまる","ふわり","ちびすけ"];
+let jaVoice = null;
+function pickVoice(){
+  if(!("speechSynthesis" in window)) return;
+  const vs = speechSynthesis.getVoices();
+  jaVoice = vs.find(v=>v.lang && v.lang.indexOf("ja")===0) || null;
+}
+if("speechSynthesis" in window){
+  pickVoice();
+  speechSynthesis.onvoiceschanged = pickVoice;
+}
+function speak(c, text){
+  c.say = text;
+  c.sayT = Math.max(1.8, text.length*0.15 + 1);
+  try{
+    if("speechSynthesis" in window && jaVoice !== undefined){
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "ja-JP";
+      if(jaVoice) u.voice = jaVoice;
+      u.pitch = c.pitch;   // キャラごとに違う声の高さ
+      u.rate = 1.05;
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    }else{
+      sndChirp(c.voice);
+    }
+  }catch(err){ sndChirp(c.voice); }
+}
 
 /* ================= おえかきツール ================= */
 const COLORS = ["#3B3B3B","#FF5A5A","#FFA53C","#FFD93C","#58C95E","#4D9DFF","#A46DEB","#FF8FC1","#9C6B4A"];
@@ -372,7 +424,18 @@ function spawnChar(imgSource, logicalW, logicalH){
     dropping:false, dropY:0, dropV:0,
     landT: 0,
     emoteT: 4 + Math.random()*6,
-    greetCd: 2
+    greetCd: 2,
+    /* --- v3: おしゃべり・へんしん --- */
+    pitch: 0.8 + Math.random(),      // 声の高さ(キャラの個性)
+    say: "", sayT: 0,                // 吹き出し
+    name: null,
+    move: "hop",                     // hop | run | fly
+    limbs: false,                    // 目と手足が生えているか
+    blinkT: 2 + Math.random()*3,
+    altitude: 110 + Math.random()*90,
+    flyP: 0,                         // 飛行の上昇度合い 0..1
+    lastPy: groundY,
+    aiBusy: false
   };
   chars.push(c);
   if(chars.length > MAX_CHARS){
@@ -403,9 +466,10 @@ function birth(){
   off.width = pw; off.height = ph;
   off.getContext("2d").drawImage(drawCv, Math.max(0,minX-4), Math.max(0,minY-4), pw, ph, 0, 0, pw, ph);
 
-  spawnChar(off, pw/DPR, ph/DPR);
+  const born = spawnChar(off, pw/DPR, ph/DPR);
   addToZukan(off.toDataURL("image/png"), pw/DPR, ph/DPR);
   sndBirth();
+  setTimeout(()=>speak(born, HELLO_LINES[Math.floor(Math.random()*HELLO_LINES.length)]), 700);
   strokes.length = 0; redraw();
 }
 document.getElementById("birthBtn").addEventListener("click", birth);
@@ -436,6 +500,24 @@ nightBtn.addEventListener("click", ()=>{
   if(nightTarget) sndTwinkle(); else sndBirth();
 });
 const isNight = ()=> nightMix > 0.5;
+
+/* ================= 背景シーン切りかえ(🌼→🌊→⛰️→⛄) ================= */
+const sceneBtn = document.getElementById("sceneBtn");
+function refreshSceneBtn(){ sceneBtn.textContent = SCENES[sceneIdx].emoji; }
+sceneBtn.addEventListener("click", ()=>{
+  ensureAudio(); sndPop();
+  sceneIdx = (sceneIdx + 1) % SCENES.length;
+  try{ localStorage.setItem("rakugakiScene", String(sceneIdx)); }catch(e){}
+  refreshSceneBtn();
+  /* おひっこしの演出: みんなで小さくジャンプ */
+  for(const c of chars){
+    if(!c.jumping && !c.dragging && !c.dropping){ c.jumping = true; c.jumpY = 0; c.jumpV = -260; }
+  }
+  if(chars.length){
+    const c = chars[Math.floor(Math.random()*chars.length)];
+    speak(c, SCENES[sceneIdx].name + "に きたよ〜!");
+  }
+});
 
 /* ================= パーティクル・エモート ================= */
 const parts = [];
@@ -468,12 +550,38 @@ function emote(x, y, txt, size=24){
   emotes.push({x, y, vy:-34, life:1.1, max:1.1, txt, size});
 }
 
-/* ================= 背景 ================= */
+/* ================= 背景シーン ================= */
+const SCENES = [
+  { id:"nohara", emoji:"\u{1F33C}", name:"のはら", sky:["#8FD8FF","#E9FBFF"], g1:"#7ECB56", g2:"#67B944" },
+  { id:"umi",    emoji:"\u{1F30A}", name:"うみ",   sky:["#7FD0FF","#E2F7FF"], g1:"#F2DCA0", g2:"#E8C97F" },
+  { id:"yama",   emoji:"\u26F0\uFE0F", name:"やま", sky:["#9FCBEF","#EAF4FF"], g1:"#7DB868", g2:"#639A50" },
+  { id:"yuki",   emoji:"\u26C4",   name:"ゆき",   sky:["#BFD9E8","#F2F8FB"], g1:"#FFFFFF", g2:"#E2ECF4" }
+];
+let sceneIdx = 0;
+try{ sceneIdx = Math.min(SCENES.length-1, parseInt(localStorage.getItem("rakugakiScene")||"0")||0); }catch(e){}
+
+/* 昼の色を夜色へ寄せる補間(昼夜クロスフェード対応) */
+function hex2rgb(h){ return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)]; }
+function shade(hex, extra=0){
+  const t = Math.min(1, nightMix*0.55 + extra);
+  const a = hex2rgb(hex), b = [26,36,80]; // #1A2450
+  return `rgb(${Math.round(a[0]+(b[0]-a[0])*t)},${Math.round(a[1]+(b[1]-a[1])*t)},${Math.round(a[2]+(b[2]-a[2])*t)})`;
+}
+
 const clouds = [
   {x:0.15, y:0.16, s:1.0, v:8},
   {x:0.55, y:0.10, s:1.4, v:5},
   {x:0.85, y:0.22, s:0.8, v:11}
 ].map(c=>({x:c.x*window.innerWidth, y:c.y, s:c.s, v:c.v}));
+
+/* ゆきシーン用の雪 */
+const flakes = [];
+function ensureFlakes(){
+  while(flakes.length < 45){
+    flakes.push({x:Math.random()*W, y:Math.random()*H, vy:22+Math.random()*36,
+      ph:Math.random()*Math.PI*2, r:1.6+Math.random()*2.4});
+  }
+}
 
 function groundPath(){
   pctx.beginPath();
@@ -482,10 +590,78 @@ function groundPath(){
   pctx.quadraticCurveTo(W*0.75, groundY+22, W, groundY-30);
   pctx.lineTo(W, H); pctx.lineTo(0, H); pctx.closePath();
 }
+
+function mountain(x, w, h, col, snowCap){
+  const top = groundY - h;
+  pctx.fillStyle = col;
+  pctx.beginPath();
+  pctx.moveTo(x - w/2, groundY+8);
+  pctx.lineTo(x, top);
+  pctx.lineTo(x + w/2, groundY+8);
+  pctx.closePath(); pctx.fill();
+  if(snowCap){
+    pctx.fillStyle = shade("#FFFFFF");
+    pctx.beginPath();
+    pctx.moveTo(x - w*0.13, top + h*0.24);
+    pctx.lineTo(x, top);
+    pctx.lineTo(x + w*0.13, top + h*0.24);
+    pctx.lineTo(x + w*0.07, top + h*0.19);
+    pctx.lineTo(x, top + h*0.27);
+    pctx.lineTo(x - w*0.07, top + h*0.19);
+    pctx.closePath(); pctx.fill();
+  }
+}
+
+/* シーンごとの遠景(空と地面のあいだ) */
+function drawBackdrop(scene, dt, now){
+  if(scene.id === "yama"){
+    mountain(W*0.22, W*0.62, H*0.42, shade("#8FB3D6"), true);
+    mountain(W*0.78, W*0.7,  H*0.5,  shade("#7CA6CE"), true);
+    mountain(W*0.5,  W*0.66, H*0.32, shade("#6E9A70"), false);
+  }
+  else if(scene.id === "umi"){
+    const horizon = groundY - 86;
+    const sea = pctx.createLinearGradient(0, horizon, 0, groundY+8);
+    sea.addColorStop(0, shade("#2E9AD6"));
+    sea.addColorStop(1, shade("#7FD3EC"));
+    pctx.fillStyle = sea;
+    pctx.fillRect(0, horizon, W, groundY - horizon + 8);
+    /* うごく波 */
+    pctx.strokeStyle = `rgba(255,255,255,${0.55 - nightMix*0.3})`;
+    pctx.lineWidth = 2.5;
+    for(let k=0;k<3;k++){
+      const wy = horizon + 22 + k*24;
+      pctx.beginPath();
+      for(let x=0;x<=W;x+=14){
+        const y = wy + Math.sin(x/46 + now/650 + k*1.8)*3.5;
+        if(x===0) pctx.moveTo(x,y); else pctx.lineTo(x,y);
+      }
+      pctx.stroke();
+    }
+  }
+  else if(scene.id === "yuki"){
+    mountain(W*0.25, W*0.7, H*0.36, shade("#D7E5F1"), false);
+    mountain(W*0.75, W*0.74, H*0.42, shade("#C7DAEC"), false);
+  }
+}
+
+/* ゆきは手前に降らせる(地面より上のレイヤー) */
+function drawSnowfall(dt, now){
+  ensureFlakes();
+  pctx.fillStyle = `rgba(255,255,255,${0.9 - nightMix*0.25})`;
+  for(const f of flakes){
+    f.y += f.vy*dt;
+    f.x += Math.sin(now/900 + f.ph)*22*dt;
+    if(f.y > H+4){ f.y = -6; f.x = Math.random()*W; }
+    pctx.beginPath(); pctx.arc(f.x, f.y, f.r, 0, Math.PI*2); pctx.fill();
+  }
+}
+
 function drawBG(dt, now){
-  // 昼の空
+  const scene = SCENES[sceneIdx];
+  // 昼の空(シーンごとの色)
   const sky = pctx.createLinearGradient(0,0,0,groundY);
-  sky.addColorStop(0,"#8FD8FF"); sky.addColorStop(1,"#E9FBFF");
+  sky.addColorStop(0, scene.sky[0]); sky.addColorStop(1, scene.sky[1]);
   pctx.fillStyle = sky; pctx.fillRect(0,0,W,groundY+4);
   // 夜の空を重ねる
   if(nightMix > 0.01){
@@ -527,16 +703,111 @@ function drawBG(dt, now){
     pctx.arc(c.x+52*s, y, 22*s, 0, Math.PI*2);
     pctx.fill();
   }
-  // 地面
-  pctx.fillStyle = "#7ECB56";
+  // 遠景(やまなみ・うみ など)
+  drawBackdrop(scene, dt, now);
+  // 地面(夜色に補間するので上塗り不要)
+  pctx.fillStyle = shade(scene.g1);
   groundPath(); pctx.fill();
-  pctx.fillStyle = "#67B944";
+  pctx.fillStyle = shade(scene.g2);
   pctx.fillRect(0, groundY+18, W, H-groundY);
-  if(nightMix > 0.01){
-    pctx.fillStyle = `rgba(12,20,64,${nightMix*0.4})`;
-    groundPath(); pctx.fill();
-    pctx.fillRect(0, groundY+18, W, H-groundY);
+  // ゆきは手前にも降らせる
+  if(scene.id === "yuki") drawSnowfall(dt, now);
+}
+
+/* ================= へんしん描画(手足・目玉) ================= */
+/* キャラのローカル座標系(足元が y=0、体は上方向)で描く */
+function drawLimbs(c, night, legLen){
+  const ink = "#3B3B3B";
+  const lw = Math.max(4, Math.min(7, c.w*0.05));
+  pctx.strokeStyle = ink; pctx.fillStyle = ink;
+  pctx.lineWidth = lw; pctx.lineCap = "round";
+  const walk = night ? 0 : Math.sin(c.t * c.freq * 3.2);
+
+  /* あし(左右交互にパタパタ) */
+  const legX = c.w*0.2;
+  for(const s of [-1, 1]){
+    const a = walk * 0.55 * s;
+    const fx = s*legX + Math.sin(a)*legLen;
+    const fy = -Math.max(0, legLen - Math.cos(a)*legLen) ;
+    pctx.beginPath();
+    pctx.moveTo(s*legX, -legLen+2);
+    pctx.lineTo(fx, -2 + fy*0);
+    pctx.stroke();
+    pctx.beginPath();
+    pctx.ellipse(fx, -2, lw*0.9, lw*0.6, 0, 0, Math.PI*2);
+    pctx.fill();
   }
+  /* うで(あしと逆位相でぶんぶん) */
+  const armY = -legLen - c.h*0.5;
+  const armLen = Math.max(11, c.w*0.2);
+  for(const s of [-1, 1]){
+    const a = -walk * 0.7 * s + (night ? 0.5 : 0);
+    pctx.beginPath();
+    pctx.moveTo(s*c.w*0.46, armY);
+    pctx.lineTo(s*c.w*0.46 + Math.cos(a)*armLen*s, armY + Math.sin(Math.abs(a))*armLen*0.6 + 4);
+    pctx.stroke();
+  }
+  /* めだま(まばたき付き、夜は閉じる) */
+  const er = Math.max(6, Math.min(15, Math.min(c.w, c.h)*0.11));
+  const ey = -legLen - c.h*0.72;
+  const blink = c.blinkT < 0;
+  for(const s of [-1, 1]){
+    const ex = s*c.w*0.2;
+    if(night || blink){
+      pctx.lineWidth = 2.5;
+      pctx.beginPath();
+      pctx.arc(ex, ey, er*0.8, 0.15*Math.PI, 0.85*Math.PI);
+      pctx.stroke();
+      pctx.lineWidth = lw;
+    }else{
+      pctx.fillStyle = "#fff";
+      pctx.beginPath(); pctx.arc(ex, ey, er, 0, Math.PI*2); pctx.fill();
+      pctx.lineWidth = 2;
+      pctx.beginPath(); pctx.arc(ex, ey, er, 0, Math.PI*2); pctx.stroke();
+      pctx.lineWidth = lw;
+      pctx.fillStyle = ink;
+      pctx.beginPath();
+      pctx.arc(ex + er*0.3, ey + Math.sin(c.t*2)*er*0.12, er*0.45, 0, Math.PI*2);
+      pctx.fill();
+    }
+  }
+}
+
+/* 角丸四角形パス */
+function rr(x, y, w, h, r){
+  pctx.beginPath();
+  pctx.moveTo(x+r, y);
+  pctx.arcTo(x+w, y, x+w, y+h, r);
+  pctx.arcTo(x+w, y+h, x, y+h, r);
+  pctx.arcTo(x, y+h, x, y, r);
+  pctx.arcTo(x, y, x+w, y, r);
+  pctx.closePath();
+}
+function drawBubble(text, x, y){
+  pctx.font = "800 15px sans-serif";
+  pctx.textAlign = "center";
+  const tw = pctx.measureText(text).width;
+  const bw = tw + 26, bh = 32;
+  const bx = Math.min(Math.max(x, bw/2 + 6), W - bw/2 - 6);
+  rr(bx - bw/2, y - bh, bw, bh, 12);
+  pctx.fillStyle = "rgba(255,255,255,.95)"; pctx.fill();
+  pctx.strokeStyle = "#3B3B3B"; pctx.lineWidth = 2.5; pctx.stroke();
+  pctx.beginPath();
+  pctx.moveTo(x-6, y-2); pctx.lineTo(x+6, y-2); pctx.lineTo(x, y+8);
+  pctx.closePath();
+  pctx.fillStyle = "rgba(255,255,255,.95)"; pctx.fill();
+  pctx.fillStyle = "#3B3B3B";
+  pctx.fillText(text, bx, y - 11);
+}
+function drawNameTag(name, x, y){
+  pctx.font = "800 12px sans-serif";
+  pctx.textAlign = "center";
+  const tw = pctx.measureText(name).width;
+  rr(x - tw/2 - 8, y - 18, tw + 16, 20, 9);
+  pctx.fillStyle = "rgba(255,255,255,.8)"; pctx.fill();
+  pctx.strokeStyle = "rgba(59,59,59,.7)"; pctx.lineWidth = 1.5; pctx.stroke();
+  pctx.fillStyle = "#3B3B3B";
+  pctx.fillText(name, x, y - 4);
 }
 
 /* ================= メインループ ================= */
@@ -554,13 +825,13 @@ function loop(now){
         const a = chars[i], b = chars[j];
         if(a.dragging||b.dragging||a.dropping||b.dropping) continue;
         if(a.greetCd>0 || b.greetCd>0) continue;
-        if(Math.abs(a.x-b.x) < (a.w+b.w)*0.3){
+        if(Math.abs(a.x-b.x) < (a.w+b.w)*0.3 && Math.abs(a.lastPy-b.lastPy) < 70){
           a.greetCd = b.greetCd = 5 + Math.random()*3;
           for(const c of [a,b]){
             if(!c.jumping){ c.jumping = true; c.jumpY = 0; c.jumpV = -240; }
           }
-          emote(a.x, groundY-a.h-12, Math.random()<0.5?"♥":"♪");
-          emote(b.x, groundY-b.h-12, Math.random()<0.5?"♥":"♪");
+          emote(a.x, a.lastPy-a.h-12, Math.random()<0.5?"♥":"♪");
+          emote(b.x, b.lastPy-b.h-12, Math.random()<0.5?"♥":"♪");
           sndChirp(a.voice);
           sndChirp(b.voice, 0.16);
           a.dir = Math.sign(b.x-a.x)||1; b.dir = -a.dir;
@@ -577,8 +848,8 @@ function loop(now){
     /* エモート(ひとりごと / いびき) */
     c.emoteT -= dt;
     if(c.emoteT <= 0 && !c.dragging && !c.dropping){
-      if(night) emote(c.x + c.w*0.3, groundY - c.h - 8, "Z", 20);
-      else emote(c.x, groundY - c.h - 12, ["♪","☆","!"][Math.floor(Math.random()*3)]);
+      if(night) emote(c.x + c.w*0.3, c.lastPy - c.h - 8, "Z", 20);
+      else emote(c.x, c.lastPy - c.h - 12, ["♪","☆","!"][Math.floor(Math.random()*3)]);
       c.emoteT = night ? 2.2 + Math.random()*2 : 6 + Math.random()*8;
     }
 
@@ -611,7 +882,8 @@ function loop(now){
         py += c.jumpY;
       }
     }else{
-      c.x += c.speed * c.dir * dt;
+      const spd = c.move === "run" ? c.speed*1.9 : c.speed;
+      c.x += spd * c.dir * dt;
       if(c.x < c.w/2){ c.x = c.w/2; c.dir = 1; }
       if(c.x > W - c.w/2){ c.x = W - c.w/2; c.dir = -1; }
       if(Math.random() < 0.15*dt) c.dir *= -1;
@@ -624,13 +896,28 @@ function loop(now){
         if(c.jumpY >= 0){ c.jumping=false; c.jumpY=0; c.spin=0; if(c.jumpV>500) burst(c.x, groundY-10); }
         jumpOffset = c.jumpY;
       }
-      const hopPhase = Math.abs(Math.sin(c.t * c.freq));
-      sq = 1 - (1-hopPhase)*0.12;
+      /* 手足が生えたキャラは小刻みに、飛行キャラは跳ねない */
+      const hopH = c.move === "fly" ? 0 : (c.limbs ? 4 : c.hop);
+      const hopFreq = c.limbs ? c.freq*1.8 : c.freq;
+      const hopPhase = Math.abs(Math.sin(c.t * hopFreq));
+      sq = 1 - (1-hopPhase)*(c.move==="fly" ? 0.03 : 0.12);
       sx = 2 - sq;
-      rot = c.spin + Math.sin(c.t*c.freq)*0.06*c.dir;
+      rot = c.spin + Math.sin(c.t*hopFreq)*0.06*c.dir;
       px = c.x;
-      py = groundY + bornOffset + jumpOffset - hopPhase*c.hop;
+      py = groundY + bornOffset + jumpOffset - hopPhase*hopH;
     }
+
+    /* --- 飛行(ふわふわ浮上、夜は降りてきて眠る) --- */
+    const flyTarget = (c.move === "fly" && !night && !c.dragging && !c.dropping) ? 1 : 0;
+    c.flyP += (flyTarget - c.flyP) * Math.min(1, dt*1.2);
+    if(c.flyP > 0.01 && !c.dragging && !c.dropping){
+      py -= c.altitude*c.flyP + Math.sin(c.t*2.2)*10*c.flyP;
+      rot += Math.sin(c.t*2.2)*0.05*c.flyP;
+    }
+
+    /* まばたきタイマー */
+    c.blinkT -= dt;
+    if(c.blinkT < -0.13) c.blinkT = 2 + Math.random()*3.5;
 
     /* 着地のつぶれ */
     if(c.landT > 0){
@@ -649,8 +936,20 @@ function loop(now){
     pctx.translate(px, py);
     pctx.rotate(rot);
     pctx.scale((c.dragging ? 1 : c.dir) * sx, sq);
-    pctx.drawImage(c.img, -c.w/2, -c.h, c.w, c.h);
+    const legLen = c.limbs ? Math.max(13, c.h*0.2) : 0;
+    pctx.drawImage(c.img, -c.w/2, -c.h - legLen, c.w, c.h);
+    if(c.limbs) drawLimbs(c, night, legLen);
     pctx.restore();
+    c.lastPy = py;
+
+    /* 吹き出し・名前タグ(画面座標で描く) */
+    const topY = py - c.h - legLen - 10;
+    if(c.sayT > 0){
+      c.sayT -= dt;
+      drawBubble(c.say, px, Math.max(34, topY - 12));
+    }else if(c.name){
+      drawNameTag(c.name, px, Math.max(20, topY));
+    }
   }
 
   /* パーティクル */
@@ -687,7 +986,9 @@ playCv.addEventListener("pointerdown", e=>{
   const x = e.clientX, y = e.clientY;
   for(let i=chars.length-1;i>=0;i--){
     const c = chars[i];
-    if(Math.abs(x-c.x) < c.w*0.6 && y > groundY-c.h*1.4 && y < groundY+16){
+    const foot = c.lastPy;
+    if(Math.abs(x-c.x) < c.w*0.65 && y > foot - c.h*1.5 && y < foot + 18){
+      if(magicMode){ setMagicMode(false); transformChar(c); return; }
       pending = { c, sx:x, sy:y, moved:false, id:e.pointerId };
       playCv.setPointerCapture(e.pointerId);
       // 最前面へ
@@ -695,6 +996,7 @@ playCv.addEventListener("pointerdown", e=>{
       return;
     }
   }
+  if(magicMode) setMagicMode(false); // なにもない場所ならキャンセル
 });
 playCv.addEventListener("pointermove", e=>{
   if(!pending || e.pointerId !== pending.id) return;
@@ -720,12 +1022,13 @@ function releasePending(){
   }else{
     if(isNight()){
       // 寝ているところを起こしてしまった
-      emote(c.x, groundY - c.h - 14, "!");
+      emote(c.x, c.lastPy - c.h - 14, "!");
       if(!c.jumping){ c.jumping = true; c.jumpY = 0; c.jumpV = -260; }
-      sndChirp(c.voice*1.3);
+      speak(c, NIGHT_LINES[Math.floor(Math.random()*NIGHT_LINES.length)]);
     }else{
       if(!c.jumping){ c.jumping = true; c.jumpY = 0; c.jumpV = -430; }
       sndBoing();
+      if(Math.random() < 0.6) speak(c, DAY_LINES[Math.floor(Math.random()*DAY_LINES.length)]);
     }
   }
   pending = null;
@@ -733,7 +1036,86 @@ function releasePending(){
 playCv.addEventListener("pointerup", releasePending);
 playCv.addEventListener("pointercancel", releasePending);
 
+/* ================= へんしんモード(🪄) ================= */
+let magicMode = false;
+const magicBtn = document.getElementById("magicBtn");
+const magicBanner = document.getElementById("magicBanner");
+function setMagicMode(on){
+  magicMode = on;
+  magicBtn.classList.toggle("armed", on);
+  magicBanner.classList.toggle("show", on);
+}
+magicBtn.addEventListener("click", ()=>{
+  ensureAudio(); sndPop();
+  if(!chars.length){
+    setMagicMode(false);
+    wobblePad();
+    return;
+  }
+  setMagicMode(!magicMode);
+});
+
+/* キャラ画像をbase64(PNG)へ変換 */
+function charToBase64(c){
+  const tmp = document.createElement("canvas");
+  const nw = c.img.naturalWidth || c.img.width;
+  const nh = c.img.naturalHeight || c.img.height;
+  tmp.width = nw; tmp.height = nh;
+  tmp.getContext("2d").drawImage(c.img, 0, 0);
+  return tmp.toDataURL("image/png").split(",")[1];
+}
+
+/* オフラインへんしん: 目と手足が生えて名前がつく */
+function offlineTransform(c){
+  c.limbs = true;
+  if(!c.name) c.name = OFFLINE_NAMES[Math.floor(Math.random()*OFFLINE_NAMES.length)];
+  if(Math.random() < 0.3){ c.move = "fly"; }
+  burst(c.x, c.lastPy - c.h/2);
+  sndBirth();
+  speak(c, "へんしん! " + c.name + "だよ!");
+}
+
+/* AIへんしん: GASプロキシ経由でClaudeに絵を判定してもらう */
+async function aiTransform(c){
+  c.aiBusy = true;
+  c.say = "✨ かんがえちゅう…"; c.sayT = 15;
+  burst(c.x, c.lastPy - c.h/2);
+  try{
+    const ctrl = new AbortController();
+    const timer = setTimeout(()=>ctrl.abort(), 20000);
+    const res = await fetch(GAS_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" }, // preflight回避のためtext/plain
+      body: JSON.stringify({ image: charToBase64(c) }),
+      signal: ctrl.signal
+    });
+    clearTimeout(timer);
+    const data = await res.json();
+    if(data.error) throw new Error(data.error);
+
+    c.limbs = true;
+    if(data.name) c.name = String(data.name).slice(0, 8);
+    if(["hop","run","fly"].includes(data.move)) c.move = data.move;
+    burst(c.x, c.lastPy - c.h/2);
+    sndBirth();
+    speak(c, data.comment || ("へんしん! " + (c.name || "") + "だよ!"));
+  }catch(err){
+    console.log("AI transform failed:", err);
+    c.sayT = 0;
+    offlineTransform(c); // 失敗してもオフラインへんしんで楽しさは保証
+  }finally{
+    c.aiBusy = false;
+  }
+}
+
+function transformChar(c){
+  if(c.aiBusy) return;
+  if(GAS_ENDPOINT) aiTransform(c);
+  else offlineTransform(c);
+}
+
 /* ================= PWA: Service Worker登録 ================= */
+refreshSceneBtn(); // 保存されたシーンをボタンに反映
 /* file:// で直接開いた場合やSW非対応環境では静かにスキップする */
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   window.addEventListener("load", () => {
