@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<!-- ホーム画面に追加したときにフルスクリーンで起動するための設定 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="らくがきランド">
+<meta name="theme-color" content="#8FD8FF">
+<!-- PWA: マニフェストとiOS用ホーム画面アイコン -->
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<title>らくがきランド</title>
+<style>
+  :root{
+    --paper:#FFFDF5;
+    --ink:#3B3B3B;
+    --btn:#FF7A59;
+    --btn-dark:#E85C3A;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{width:100%;height:100%;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;
+    font-family:"Hiragino Maru Gothic ProN","BIZ UDPGothic","Yu Gothic",sans-serif;}
+  #world{position:fixed;inset:0;}
+  #playCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+
+  /* ---- おえかきちょう ---- */
+  #pad{
+    position:absolute;left:50%;bottom:max(12px, env(safe-area-inset-bottom));transform:translateX(-50%);
+    background:var(--paper);border:4px solid var(--ink);border-radius:24px;
+    box-shadow:0 8px 0 rgba(0,0,0,.18);
+    padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px;
+    transition:transform .35s cubic-bezier(.34,1.56,.64,1),opacity .3s;
+    max-width:96vw;
+  }
+  #pad.hidden{transform:translateX(-50%) translateY(130%);opacity:0;pointer-events:none;}
+  #padTitle{font-weight:800;color:var(--ink);font-size:15px;letter-spacing:.15em;text-align:center;}
+  #drawWrap{position:relative;background:#fff;border:3px dashed #cfc8b8;border-radius:14px;overflow:hidden;}
+  #drawCanvas{display:block;touch-action:none;cursor:crosshair;}
+  #hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:#c9c2b2;font-weight:800;font-size:20px;pointer-events:none;letter-spacing:.1em;}
+
+  #tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;}
+  .swatch{width:36px;height:36px;border-radius:50%;border:3px solid rgba(0,0,0,.15);flex:none;}
+  .swatch.sel{border:3px solid var(--ink);transform:scale(1.18);box-shadow:0 0 0 3px #fff inset;}
+  .tool{height:36px;min-width:44px;border-radius:12px;border:3px solid var(--ink);background:#fff;
+    font-size:16px;font-weight:800;color:var(--ink);padding:0 8px;}
+  .tool.sel{background:#FFE9A8;}
+  .swatch,.tool,#birthBtn,.fab,.chip{cursor:pointer;transition:transform .08s;}
+  .swatch:active,.tool:active,#birthBtn:active,.fab:active,.chip:active{transform:scale(.92);}
+
+  #birthBtn{
+    width:100%;padding:12px 0;border:none;border-radius:18px;
+    background:var(--btn);box-shadow:0 5px 0 var(--btn-dark);
+    color:#fff;font-size:22px;font-weight:900;letter-spacing:.2em;
+  }
+  #birthBtn:active{box-shadow:0 1px 0 var(--btn-dark);transform:translateY(4px);}
+
+  /* ---- フローティングボタン ---- */
+  .fab{
+    width:60px;height:60px;border-radius:50%;
+    border:4px solid var(--ink);box-shadow:0 5px 0 rgba(0,0,0,.2);
+    font-size:27px;display:flex;align-items:center;justify-content:center;background:#fff;
+  }
+  #togglePad{position:absolute;left:max(14px, env(safe-area-inset-left));bottom:max(14px, env(safe-area-inset-bottom));background:#FFD93C;}
+  #albumBtn{position:absolute;left:max(14px, env(safe-area-inset-left));top:max(14px, env(safe-area-inset-top));background:#B7E5FF;}
+  #topRight{position:absolute;right:max(14px, env(safe-area-inset-right));top:max(14px, env(safe-area-inset-top));display:flex;gap:10px;align-items:center;}
+  #nightBtn{background:#E8DDFF;}
+  .chip{
+    padding:8px 14px;border-radius:14px;border:3px solid var(--ink);
+    background:rgba(255,255,255,.88);font-size:14px;font-weight:800;color:var(--ink);
+    display:none;height:44px;
+  }
+  .chip.show{display:block;}
+
+  /* ---- ずかん ---- */
+  #album{
+    position:fixed;inset:0;background:rgba(40,40,60,.45);
+    display:none;align-items:center;justify-content:center;z-index:20;
+  }
+  #album.show{display:flex;}
+  #albumPanel{
+    background:var(--paper);border:4px solid var(--ink);border-radius:24px;
+    box-shadow:0 10px 0 rgba(0,0,0,.25);
+    width:min(560px,92vw);max-height:82vh;display:flex;flex-direction:column;
+    padding:16px;gap:12px;
+  }
+  #albumTitle{font-size:19px;font-weight:900;color:var(--ink);text-align:center;letter-spacing:.2em;}
+  #albumGrid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));
+    gap:10px;overflow-y:auto;padding:4px;touch-action:pan-y;
+  }
+  .albumItem{position:relative;background:#fff;border:3px solid #ded6c2;border-radius:14px;
+    aspect-ratio:1;display:flex;align-items:center;justify-content:center;padding:8px;}
+  .albumItem img{max-width:100%;max-height:100%;pointer-events:none;}
+  .albumItem .del{
+    position:absolute;top:-8px;right:-8px;width:28px;height:28px;border-radius:50%;
+    border:2px solid var(--ink);background:#fff;color:var(--ink);font-weight:900;font-size:13px;
+  }
+  #albumEmpty{color:#b7af9d;font-weight:800;text-align:center;padding:26px 0;}
+  #albumClose{align-self:center;padding:10px 34px;border-radius:16px;border:none;
+    background:var(--btn);box-shadow:0 4px 0 var(--btn-dark);color:#fff;font-size:17px;font-weight:900;}
+</style>
+</head>
+<body>
+<div id="world">
+  <canvas id="playCanvas"></canvas>
+
+  <button id="albumBtn" class="fab" title="ずかん">📖</button>
+  <div id="topRight">
+    <button id="byeBtn" class="chip">みんな バイバイ 👋</button>
+    <button id="nightBtn" class="fab" title="よる／ひる">🌙</button>
+  </div>
+  <button id="togglePad" class="fab">⬇️</button>
+
+  <div id="pad">
+    <div id="padTitle">✏️ おえかきちょう ✏️</div>
+    <div id="drawWrap">
+      <canvas id="drawCanvas"></canvas>
+      <div id="hint">ここに かいてね!</div>
+    </div>
+    <div id="tools"></div>
+    <button id="birthBtn">うまれる!!</button>
+  </div>
+
+  <div id="album">
+    <div id="albumPanel">
+      <div id="albumTitle">📖 らくがき ずかん 📖</div>
+      <div id="albumGrid"></div>
+      <button id="albumClose">とじる</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= 基本セットアップ ================= */
+const playCv = document.getElementById("playCanvas");
+const pctx = playCv.getContext("2d");
+const drawCv = document.getElementById("drawCanvas");
+const dctx = drawCv.getContext("2d");
+const pad = document.getElementById("pad");
+const hint = document.getElementById("hint");
+const togglePad = document.getElementById("togglePad");
+const byeBtn = document.getElementById("byeBtn");
+const nightBtn = document.getElementById("nightBtn");
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+let W = 0, H = 0, groundY = 0;
+let stars = [];
+function resizeWorld(){
+  W = window.innerWidth; H = window.innerHeight;
+  playCv.width = W * DPR; playCv.height = H * DPR;
+  pctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  groundY = H * 0.82;
+  stars = [];
+  const n = Math.floor(W / 14);
+  for(let i=0;i<n;i++){
+    stars.push({x:Math.random()*W, y:Math.random()*groundY*0.8,
+      r:0.8+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:1+Math.random()*2});
+  }
+}
+window.addEventListener("resize", resizeWorld);
+resizeWorld();
+
+/* おえかきキャンバス(論理サイズ固定) */
+const DW = 440, DH = 300;
+function sizeDrawCanvas(){
+  const maxW = Math.min(window.innerWidth * 0.9 - 30, 440);
+  const cssW = Math.max(240, maxW);
+  drawCv.style.width = cssW + "px";
+  drawCv.style.height = cssW * (DH / DW) + "px";
+}
+drawCv.width = DW * DPR; drawCv.height = DH * DPR;
+dctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+dctx.lineCap = "round"; dctx.lineJoin = "round";
+sizeDrawCanvas();
+window.addEventListener("resize", sizeDrawCanvas);
+document.addEventListener("contextmenu", e=>e.preventDefault());
+
+/* ================= サウンド(WebAudio生成) ================= */
+let audio = null;
+function ensureAudio(){
+  if(!audio){ audio = new (window.AudioContext || window.webkitAudioContext)(); }
+  if(audio.state === "suspended") audio.resume();
+}
+function tone(freq, t0, dur, type, vol){
+  if(!audio) return;
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, audio.currentTime + t0);
+  g.gain.setValueAtTime(vol, audio.currentTime + t0);
+  g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + t0 + dur);
+  o.connect(g); g.connect(audio.destination);
+  o.start(audio.currentTime + t0); o.stop(audio.currentTime + t0 + dur + 0.05);
+}
+function sndBirth(){ ensureAudio(); [523,659,784,1047].forEach((f,i)=>tone(f, i*0.09, 0.25, "triangle", 0.25)); }
+function sndBoing(){ ensureAudio();
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = "sine";
+  o.frequency.setValueAtTime(180, audio.currentTime);
+  o.frequency.exponentialRampToValueAtTime(560, audio.currentTime + 0.18);
+  g.gain.setValueAtTime(0.3, audio.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.3);
+  o.connect(g); g.connect(audio.destination); o.start(); o.stop(audio.currentTime + 0.35);
+}
+function sndPop(){ ensureAudio(); tone(880, 0, 0.07, "square", 0.12); }
+function sndThud(){ ensureAudio(); tone(110, 0, 0.14, "sine", 0.35); tone(70, 0, 0.2, "sine", 0.3); }
+function sndChirp(base, delay=0){ ensureAudio();
+  tone(base, delay, 0.1, "triangle", 0.2);
+  tone(base*1.26, delay+0.11, 0.13, "triangle", 0.2);
+}
+function sndTwinkle(){ ensureAudio(); [1318,1568,2093].forEach((f,i)=>tone(f, i*0.12, 0.3, "sine", 0.12)); }
+
+/* ================= おえかきツール ================= */
+const COLORS = ["#3B3B3B","#FF5A5A","#FFA53C","#FFD93C","#58C95E","#4D9DFF","#A46DEB","#FF8FC1","#9C6B4A"];
+let curColor = COLORS[1];
+let brush = 9;
+let erasing = false;
+const strokes = [];
+let curStroke = null;
+
+const tools = document.getElementById("tools");
+COLORS.forEach(c=>{
+  const b = document.createElement("button");
+  b.className = "swatch"; b.style.background = c;
+  b.onclick = ()=>{ sndPop(); erasing = false; curColor = c; refreshTools(); };
+  b.dataset.color = c;
+  tools.appendChild(b);
+});
+const sizeBtn = document.createElement("button");
+sizeBtn.className = "tool"; sizeBtn.textContent = "ふつう";
+sizeBtn.onclick = ()=>{ sndPop(); brush = brush >= 22 ? 5 : brush + 6;
+  sizeBtn.textContent = brush<=8?"ほそい":brush<=16?"ふつう":"ふとい"; };
+const eraseBtn = document.createElement("button");
+eraseBtn.className = "tool"; eraseBtn.textContent = "🧽";
+eraseBtn.onclick = ()=>{ sndPop(); erasing = !erasing; refreshTools(); };
+const undoBtn = document.createElement("button");
+undoBtn.className = "tool"; undoBtn.textContent = "↩︎";
+undoBtn.onclick = ()=>{ sndPop(); strokes.pop(); redraw(); };
+const clearBtn = document.createElement("button");
+clearBtn.className = "tool"; clearBtn.textContent = "ぜんぶけす";
+clearBtn.onclick = ()=>{ sndPop(); strokes.length = 0; redraw(); };
+tools.append(sizeBtn, eraseBtn, undoBtn, clearBtn);
+
+function refreshTools(){
+  document.querySelectorAll(".swatch").forEach(s=>s.classList.toggle("sel", !erasing && s.dataset.color === curColor));
+  eraseBtn.classList.toggle("sel", erasing);
+}
+refreshTools();
+
+function drawPos(e){
+  const r = drawCv.getBoundingClientRect();
+  return { x:(e.clientX - r.left) * DW / r.width, y:(e.clientY - r.top) * DH / r.height };
+}
+function strokeSegment(s, a, b){
+  dctx.globalCompositeOperation = s.erase ? "destination-out" : "source-over";
+  dctx.strokeStyle = s.color; dctx.lineWidth = s.erase ? s.size * 2.5 : s.size;
+  dctx.beginPath(); dctx.moveTo(a.x, a.y); dctx.lineTo(b.x, b.y); dctx.stroke();
+}
+function redraw(){
+  dctx.save(); dctx.setTransform(1,0,0,1,0,0);
+  dctx.clearRect(0,0,drawCv.width,drawCv.height); dctx.restore();
+  for(const s of strokes){
+    for(let i=1;i<s.pts.length;i++) strokeSegment(s, s.pts[i-1], s.pts[i]);
+    if(s.pts.length===1) strokeSegment(s, s.pts[0], {x:s.pts[0].x+0.1, y:s.pts[0].y});
+  }
+  hint.style.display = strokes.length ? "none" : "flex";
+}
+drawCv.addEventListener("pointerdown", e=>{
+  ensureAudio();
+  drawCv.setPointerCapture(e.pointerId);
+  const p = drawPos(e);
+  curStroke = { color:curColor, size:brush, erase:erasing, pts:[p] };
+  strokes.push(curStroke);
+  strokeSegment(curStroke, p, {x:p.x+0.1, y:p.y});
+  hint.style.display = "none";
+});
+drawCv.addEventListener("pointermove", e=>{
+  if(!curStroke) return;
+  const p = drawPos(e);
+  strokeSegment(curStroke, curStroke.pts[curStroke.pts.length-1], p);
+  curStroke.pts.push(p);
+});
+window.addEventListener("pointerup", ()=>{ curStroke = null; });
+
+/* ================= ずかん(localStorage) ================= */
+const ZUKAN_KEY = "rakugakiZukan_v1";
+const ZUKAN_MAX = 24;
+let storageOK = true;
+function loadZukan(){
+  try{ return JSON.parse(localStorage.getItem(ZUKAN_KEY) || "[]"); }
+  catch(e){ storageOK = false; return []; }
+}
+function saveZukan(arr){
+  try{ localStorage.setItem(ZUKAN_KEY, JSON.stringify(arr)); }
+  catch(e){ storageOK = false; }
+}
+function addToZukan(dataURL, w, h){
+  if(!storageOK) return;
+  const arr = loadZukan();
+  arr.push({ id: Date.now() + "_" + Math.floor(Math.random()*9999), src:dataURL, w, h, t:Date.now() });
+  while(arr.length > ZUKAN_MAX) arr.shift();
+  saveZukan(arr);
+}
+
+const album = document.getElementById("album");
+const albumGrid = document.getElementById("albumGrid");
+document.getElementById("albumBtn").addEventListener("click", ()=>{
+  sndPop(); renderAlbum(); album.classList.add("show");
+});
+document.getElementById("albumClose").addEventListener("click", ()=>{
+  sndPop(); album.classList.remove("show");
+});
+album.addEventListener("pointerdown", e=>{ if(e.target === album) album.classList.remove("show"); });
+
+function renderAlbum(){
+  albumGrid.innerHTML = "";
+  const arr = loadZukan();
+  if(!arr.length){
+    const d = document.createElement("div");
+    d.id = "albumEmpty";
+    d.textContent = storageOK ? "まだ なにも いないよ。らくがきを うんでみよう!" : "この ブラウザでは ほぞん できないみたい…";
+    d.style.gridColumn = "1 / -1";
+    albumGrid.appendChild(d);
+    return;
+  }
+  for(const item of [...arr].reverse()){
+    const cell = document.createElement("div");
+    cell.className = "albumItem";
+    const img = document.createElement("img");
+    img.src = item.src;
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "✕";
+    del.onclick = ev=>{
+      ev.stopPropagation(); sndPop();
+      saveZukan(loadZukan().filter(z=>z.id !== item.id));
+      renderAlbum();
+    };
+    cell.onclick = ()=>{
+      const el = new Image();
+      el.onload = ()=>{ spawnChar(el, item.w, item.h); sndBirth(); };
+      el.src = item.src;
+      album.classList.remove("show");
+    };
+    cell.append(img, del);
+    albumGrid.appendChild(cell);
+  }
+}
+
+/* ================= キャラクター ================= */
+const chars = [];
+const MAX_CHARS = 8;
+
+function spawnChar(imgSource, logicalW, logicalH){
+  const maxDim = Math.max(90, Math.min(H*0.17, 150));
+  const scale = Math.min(maxDim / logicalW, maxDim / logicalH, 1.4);
+  const c = {
+    img: imgSource,
+    w: logicalW*scale, h: logicalH*scale,
+    x: W*0.5 + (Math.random()*160-80),
+    dir: Math.random()<0.5?-1:1,
+    speed: 35 + Math.random()*55,
+    hop: 14 + Math.random()*18,
+    freq: 3 + Math.random()*2.5,
+    t: Math.random()*10,
+    voice: 320 + Math.random()*380,
+    bornAt: performance.now(),
+    jumpY: 0, jumpV: 0, jumping:false, spin:0,
+    dragging:false, dragX:0, dragY:0,
+    dropping:false, dropY:0, dropV:0,
+    landT: 0,
+    emoteT: 4 + Math.random()*6,
+    greetCd: 2
+  };
+  chars.push(c);
+  if(chars.length > MAX_CHARS){
+    const old = chars.shift();
+    burst(old.x, groundY - old.h/2);
+  }
+  burst(c.x, groundY - c.h*0.6);
+  byeBtn.classList.add("show");
+  return c;
+}
+
+function birth(){
+  if(!strokes.length){ sndPop(); wobblePad(); return; }
+  const img = dctx.getImageData(0, 0, drawCv.width, drawCv.height);
+  let minX=1e9,minY=1e9,maxX=-1,maxY=-1;
+  const d = img.data, w = drawCv.width;
+  for(let y=0;y<drawCv.height;y+=2){
+    for(let x=0;x<w;x+=2){
+      if(d[(y*w+x)*4+3] > 20){
+        if(x<minX)minX=x; if(x>maxX)maxX=x;
+        if(y<minY)minY=y; if(y>maxY)maxY=y;
+      }
+    }
+  }
+  if(maxX < 0){ sndPop(); return; }
+  const pw = Math.min(maxX-minX+8, drawCv.width), ph = Math.min(maxY-minY+8, drawCv.height);
+  const off = document.createElement("canvas");
+  off.width = pw; off.height = ph;
+  off.getContext("2d").drawImage(drawCv, Math.max(0,minX-4), Math.max(0,minY-4), pw, ph, 0, 0, pw, ph);
+
+  spawnChar(off, pw/DPR, ph/DPR);
+  addToZukan(off.toDataURL("image/png"), pw/DPR, ph/DPR);
+  sndBirth();
+  strokes.length = 0; redraw();
+}
+document.getElementById("birthBtn").addEventListener("click", birth);
+
+function wobblePad(){
+  pad.animate([{transform:"translateX(-50%) rotate(0)"},{transform:"translateX(-52%) rotate(-1.5deg)"},
+    {transform:"translateX(-48%) rotate(1.5deg)"},{transform:"translateX(-50%) rotate(0)"}],{duration:250});
+}
+
+byeBtn.addEventListener("click", ()=>{
+  sndPop();
+  chars.forEach(c=>burst(c.x, groundY - c.h/2));
+  chars.length = 0;
+  byeBtn.classList.remove("show");
+});
+
+togglePad.addEventListener("click", ()=>{
+  sndPop();
+  pad.classList.toggle("hidden");
+  togglePad.textContent = pad.classList.contains("hidden") ? "🖍️" : "⬇️";
+});
+
+/* ================= 昼夜モード ================= */
+let nightTarget = 0, nightMix = 0;
+nightBtn.addEventListener("click", ()=>{
+  nightTarget = nightTarget ? 0 : 1;
+  nightBtn.textContent = nightTarget ? "☀️" : "🌙";
+  if(nightTarget) sndTwinkle(); else sndBirth();
+});
+const isNight = ()=> nightMix > 0.5;
+
+/* ================= パーティクル・エモート ================= */
+const parts = [];
+function burst(x, y){
+  for(let i=0;i<16;i++){
+    const a = Math.random()*Math.PI*2, sp = 90+Math.random()*160;
+    parts.push({x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp-60,
+      life:0.9, max:0.9, col:COLORS[1+Math.floor(Math.random()*(COLORS.length-1))],
+      r:4+Math.random()*5, star:Math.random()<0.5});
+  }
+}
+function dust(x, y){
+  for(let i=0;i<8;i++){
+    parts.push({x:x+(Math.random()*40-20), y:y-4, vx:(Math.random()*120-60), vy:-30-Math.random()*50,
+      life:0.5, max:0.5, col:"#C9BFA6", r:3+Math.random()*4, star:false});
+  }
+}
+function drawStar(ctx, x, y, r, rot){
+  ctx.beginPath();
+  for(let i=0;i<10;i++){
+    const rr = i%2===0 ? r : r*0.45;
+    const a = rot + i*Math.PI/5;
+    ctx[i===0?"moveTo":"lineTo"](x+Math.cos(a)*rr, y+Math.sin(a)*rr);
+  }
+  ctx.closePath(); ctx.fill();
+}
+const emotes = [];
+const EMOTE_COLOR = { "♥":"#FF6FA5", "♪":"#5AA9FF", "☆":"#FFC93C", "!":"#FF7A59", "Z":"#A99BE0" };
+function emote(x, y, txt, size=24){
+  emotes.push({x, y, vy:-34, life:1.1, max:1.1, txt, size});
+}
+
+/* ================= 背景 ================= */
+const clouds = [
+  {x:0.15, y:0.16, s:1.0, v:8},
+  {x:0.55, y:0.10, s:1.4, v:5},
+  {x:0.85, y:0.22, s:0.8, v:11}
+].map(c=>({x:c.x*window.innerWidth, y:c.y, s:c.s, v:c.v}));
+
+function groundPath(){
+  pctx.beginPath();
+  pctx.moveTo(0, groundY);
+  pctx.quadraticCurveTo(W*0.25, groundY-46, W*0.5, groundY-8);
+  pctx.quadraticCurveTo(W*0.75, groundY+22, W, groundY-30);
+  pctx.lineTo(W, H); pctx.lineTo(0, H); pctx.closePath();
+}
+function drawBG(dt, now){
+  // 昼の空
+  const sky = pctx.createLinearGradient(0,0,0,groundY);
+  sky.addColorStop(0,"#8FD8FF"); sky.addColorStop(1,"#E9FBFF");
+  pctx.fillStyle = sky; pctx.fillRect(0,0,W,groundY+4);
+  // 夜の空を重ねる
+  if(nightMix > 0.01){
+    const nsky = pctx.createLinearGradient(0,0,0,groundY);
+    nsky.addColorStop(0,"#152253"); nsky.addColorStop(1,"#3E4C8C");
+    pctx.globalAlpha = nightMix;
+    pctx.fillStyle = nsky; pctx.fillRect(0,0,W,groundY+4);
+    // 星
+    for(const s of stars){
+      pctx.globalAlpha = nightMix * (0.4 + 0.6*Math.abs(Math.sin(now/700*s.sp + s.ph)));
+      pctx.fillStyle = "#FFF8D6";
+      pctx.beginPath(); pctx.arc(s.x, s.y, s.r, 0, Math.PI*2); pctx.fill();
+    }
+    pctx.globalAlpha = 1;
+  }
+  // 太陽と月
+  if(nightMix < 1){
+    pctx.globalAlpha = 1 - nightMix;
+    pctx.fillStyle = "#FFE066";
+    pctx.beginPath(); pctx.arc(W-80, 84, 38, 0, Math.PI*2); pctx.fill();
+  }
+  if(nightMix > 0){
+    pctx.globalAlpha = nightMix;
+    pctx.fillStyle = "#FFF3C4";
+    pctx.beginPath(); pctx.arc(W-80, 84, 34, 0, Math.PI*2); pctx.fill();
+    pctx.fillStyle = "rgba(200,190,150,.5)";
+    pctx.beginPath(); pctx.arc(W-92, 76, 6, 0, Math.PI*2); pctx.fill();
+    pctx.beginPath(); pctx.arc(W-70, 94, 4, 0, Math.PI*2); pctx.fill();
+  }
+  pctx.globalAlpha = 1;
+  // 雲(夜はうっすら)
+  pctx.fillStyle = `rgba(255,255,255,${0.92 - nightMix*0.6})`;
+  for(const c of clouds){
+    c.x += c.v*dt; if(c.x > W+120) c.x = -120;
+    const y = c.y*H, s = c.s;
+    pctx.beginPath();
+    pctx.arc(c.x, y, 24*s, 0, Math.PI*2);
+    pctx.arc(c.x+26*s, y-10*s, 20*s, 0, Math.PI*2);
+    pctx.arc(c.x+52*s, y, 22*s, 0, Math.PI*2);
+    pctx.fill();
+  }
+  // 地面
+  pctx.fillStyle = "#7ECB56";
+  groundPath(); pctx.fill();
+  pctx.fillStyle = "#67B944";
+  pctx.fillRect(0, groundY+18, W, H-groundY);
+  if(nightMix > 0.01){
+    pctx.fillStyle = `rgba(12,20,64,${nightMix*0.4})`;
+    groundPath(); pctx.fill();
+    pctx.fillRect(0, groundY+18, W, H-groundY);
+  }
+}
+
+/* ================= メインループ ================= */
+let last = performance.now();
+function loop(now){
+  const dt = Math.min((now-last)/1000, 0.05); last = now;
+  nightMix += Math.sign(nightTarget - nightMix) * Math.min(dt*1.4, Math.abs(nightTarget - nightMix));
+  drawBG(dt, now);
+  const night = isNight();
+
+  /* --- あいさつ判定(昼のみ) --- */
+  if(!night){
+    for(let i=0;i<chars.length;i++){
+      for(let j=i+1;j<chars.length;j++){
+        const a = chars[i], b = chars[j];
+        if(a.dragging||b.dragging||a.dropping||b.dropping) continue;
+        if(a.greetCd>0 || b.greetCd>0) continue;
+        if(Math.abs(a.x-b.x) < (a.w+b.w)*0.3){
+          a.greetCd = b.greetCd = 5 + Math.random()*3;
+          for(const c of [a,b]){
+            if(!c.jumping){ c.jumping = true; c.jumpY = 0; c.jumpV = -240; }
+          }
+          emote(a.x, groundY-a.h-12, Math.random()<0.5?"♥":"♪");
+          emote(b.x, groundY-b.h-12, Math.random()<0.5?"♥":"♪");
+          sndChirp(a.voice);
+          sndChirp(b.voice, 0.16);
+          a.dir = Math.sign(b.x-a.x)||1; b.dir = -a.dir;
+        }
+      }
+    }
+  }
+
+  for(const c of chars){
+    c.t += dt;
+    c.greetCd = Math.max(0, c.greetCd - dt);
+    c.landT = Math.max(0, c.landT - dt);
+
+    /* エモート(ひとりごと / いびき) */
+    c.emoteT -= dt;
+    if(c.emoteT <= 0 && !c.dragging && !c.dropping){
+      if(night) emote(c.x + c.w*0.3, groundY - c.h - 8, "Z", 20);
+      else emote(c.x, groundY - c.h - 12, ["♪","☆","!"][Math.floor(Math.random()*3)]);
+      c.emoteT = night ? 2.2 + Math.random()*2 : 6 + Math.random()*8;
+    }
+
+    /* --- 位置と姿勢 --- */
+    const age = (now - c.bornAt)/1000;
+    let bornOffset = 0;
+    if(age < 0.6){ const k = 1-age/0.6; bornOffset = -k*k*140; }
+
+    let px, py, sx = 1, sq = 1, rot = 0;
+
+    if(c.dragging){
+      px = c.dragX; py = c.dragY;
+      rot = Math.sin(c.t*9)*0.14;
+    }else if(c.dropping){
+      c.dropV += 1500*dt;
+      c.dropY += c.dropV*dt;
+      if(c.dropY >= groundY){
+        c.dropping = false; c.landT = 0.22;
+        dust(c.x, groundY); sndThud();
+      }
+      px = c.x; py = Math.min(c.dropY, groundY);
+    }else if(night){
+      // すやすや(呼吸だけ)
+      sq = 1 + Math.sin(c.t*1.6)*0.035;
+      sx = 2 - sq;
+      px = c.x; py = groundY;
+      if(c.jumping){ // 起こされたとき
+        c.jumpV += 900*dt; c.jumpY += c.jumpV*dt;
+        if(c.jumpY >= 0){ c.jumping=false; c.jumpY=0; }
+        py += c.jumpY;
+      }
+    }else{
+      c.x += c.speed * c.dir * dt;
+      if(c.x < c.w/2){ c.x = c.w/2; c.dir = 1; }
+      if(c.x > W - c.w/2){ c.x = W - c.w/2; c.dir = -1; }
+      if(Math.random() < 0.15*dt) c.dir *= -1;
+
+      let jumpOffset = 0;
+      if(c.jumping){
+        c.jumpV += 900*dt;
+        c.jumpY += c.jumpV*dt;
+        c.spin += dt*9*c.dir*(c.jumpV<-300?1:0);
+        if(c.jumpY >= 0){ c.jumping=false; c.jumpY=0; c.spin=0; if(c.jumpV>500) burst(c.x, groundY-10); }
+        jumpOffset = c.jumpY;
+      }
+      const hopPhase = Math.abs(Math.sin(c.t * c.freq));
+      sq = 1 - (1-hopPhase)*0.12;
+      sx = 2 - sq;
+      rot = c.spin + Math.sin(c.t*c.freq)*0.06*c.dir;
+      px = c.x;
+      py = groundY + bornOffset + jumpOffset - hopPhase*c.hop;
+    }
+
+    /* 着地のつぶれ */
+    if(c.landT > 0){
+      const k = c.landT/0.22;
+      sq = 1 - 0.3*k; sx = 1 + 0.3*k;
+    }
+
+    /* 影 */
+    const lift = groundY - py;
+    pctx.fillStyle = `rgba(0,0,0,${Math.max(0.05, 0.16 - lift/1400)})`;
+    pctx.beginPath();
+    pctx.ellipse(px, groundY+6, Math.max(10, c.w*0.38*(1 - lift/420)), 7, 0, 0, Math.PI*2);
+    pctx.fill();
+
+    pctx.save();
+    pctx.translate(px, py);
+    pctx.rotate(rot);
+    pctx.scale((c.dragging ? 1 : c.dir) * sx, sq);
+    pctx.drawImage(c.img, -c.w/2, -c.h, c.w, c.h);
+    pctx.restore();
+  }
+
+  /* パーティクル */
+  for(let i=parts.length-1;i>=0;i--){
+    const p = parts[i];
+    p.life -= dt; if(p.life<=0){ parts.splice(i,1); continue; }
+    p.vy += 300*dt; p.x += p.vx*dt; p.y += p.vy*dt;
+    pctx.globalAlpha = p.life/p.max;
+    pctx.fillStyle = p.col;
+    if(p.star) drawStar(pctx, p.x, p.y, p.r, p.life*6);
+    else { pctx.beginPath(); pctx.arc(p.x,p.y,p.r*0.7,0,Math.PI*2); pctx.fill(); }
+    pctx.globalAlpha = 1;
+  }
+  /* エモート */
+  pctx.textAlign = "center";
+  for(let i=emotes.length-1;i>=0;i--){
+    const e = emotes[i];
+    e.life -= dt; if(e.life<=0){ emotes.splice(i,1); continue; }
+    e.y += e.vy*dt;
+    pctx.globalAlpha = Math.min(1, e.life/e.max*1.6);
+    pctx.fillStyle = EMOTE_COLOR[e.txt] || "#fff";
+    pctx.font = `900 ${e.size}px sans-serif`;
+    pctx.fillText(e.txt, e.x, e.y);
+    pctx.globalAlpha = 1;
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ================= タップ&ドラッグ ================= */
+let pending = null;
+playCv.addEventListener("pointerdown", e=>{
+  ensureAudio();
+  const x = e.clientX, y = e.clientY;
+  for(let i=chars.length-1;i>=0;i--){
+    const c = chars[i];
+    if(Math.abs(x-c.x) < c.w*0.6 && y > groundY-c.h*1.4 && y < groundY+16){
+      pending = { c, sx:x, sy:y, moved:false, id:e.pointerId };
+      playCv.setPointerCapture(e.pointerId);
+      // 最前面へ
+      chars.splice(i,1); chars.push(c);
+      return;
+    }
+  }
+});
+playCv.addEventListener("pointermove", e=>{
+  if(!pending || e.pointerId !== pending.id) return;
+  const c = pending.c;
+  if(!pending.moved && Math.hypot(e.clientX-pending.sx, e.clientY-pending.sy) > 12){
+    pending.moved = true;
+    c.dragging = true; c.dropping = false; c.jumping = false;
+    sndPop();
+  }
+  if(c.dragging){
+    c.dragX = Math.min(Math.max(e.clientX, c.w/2), W - c.w/2);
+    c.dragY = Math.min(e.clientY + 10, groundY);
+    c.x = c.dragX;
+  }
+});
+function releasePending(){
+  if(!pending) return;
+  const c = pending.c;
+  if(pending.moved){
+    c.dragging = false;
+    c.dropping = true;
+    c.dropY = c.dragY; c.dropV = 0;
+  }else{
+    if(isNight()){
+      // 寝ているところを起こしてしまった
+      emote(c.x, groundY - c.h - 14, "!");
+      if(!c.jumping){ c.jumping = true; c.jumpY = 0; c.jumpV = -260; }
+      sndChirp(c.voice*1.3);
+    }else{
+      if(!c.jumping){ c.jumping = true; c.jumpY = 0; c.jumpV = -430; }
+      sndBoing();
+    }
+  }
+  pending = null;
+}
+playCv.addEventListener("pointerup", releasePending);
+playCv.addEventListener("pointercancel", releasePending);
+
+/* ================= PWA: Service Worker登録 ================= */
+/* file:// で直接開いた場合やSW非対応環境では静かにスキップする */
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js")
+      .then(reg => console.log("SW registered:", reg.scope))
+      .catch(err => console.log("SW registration failed:", err));
+  });
+}
+</script>
+</body>
+</html>
