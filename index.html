@@ -26,19 +26,29 @@
   #world{position:fixed;inset:0;}
   #playCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
 
-  /* ---- おえかきちょう ---- */
+  /* ---- おえかきちょう(全画面モーダル) ---- */
   #pad{
-    position:absolute;left:50%;bottom:max(12px, env(safe-area-inset-bottom));transform:translateX(-50%);
-    z-index:12;
-    background:var(--paper);border:4px solid var(--ink);border-radius:24px;
-    box-shadow:0 8px 0 rgba(0,0,0,.18);
-    padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px;
-    transition:transform .35s cubic-bezier(.34,1.56,.64,1),opacity .3s;
-    max-width:96vw;
+    position:fixed;inset:0;z-index:30;
+    background:rgba(70,58,48,.5);
+    display:flex;align-items:center;justify-content:center;
   }
-  #pad.hidden{transform:translateX(-50%) translateY(130%);opacity:0;pointer-events:none;}
-  #padTitle{font-weight:800;color:var(--ink);font-size:15px;letter-spacing:.15em;text-align:center;}
-  #drawWrap{position:relative;background:#fff;border:3px dashed #cfc8b8;border-radius:14px;overflow:hidden;}
+  #pad.hidden{display:none;}
+  #padBox{
+    background:var(--paper);border:4px solid var(--ink);border-radius:24px;
+    box-shadow:0 10px 0 rgba(0,0,0,.25);
+    padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px;
+    max-width:96vw;max-height:96vh;
+    animation:padPop .28s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes padPop{from{transform:scale(.85);opacity:0;}to{transform:scale(1);opacity:1;}}
+  #padHead{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  #padTitle{font-weight:800;color:var(--ink);font-size:15px;letter-spacing:.15em;}
+  #padVer{font-size:10px;color:#c9c2b2;font-weight:700;}
+  #padClose{
+    width:40px;height:40px;border-radius:50%;border:3px solid var(--ink);
+    background:#fff;font-size:18px;font-weight:900;color:var(--ink);cursor:pointer;
+  }
+  #drawWrap{position:relative;background:#fff;border:3px dashed #cfc8b8;border-radius:14px;overflow:hidden;align-self:center;}
   #drawCanvas{display:block;touch-action:none;cursor:crosshair;}
   #hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
     color:#c9c2b2;font-weight:800;font-size:20px;pointer-events:none;letter-spacing:.1em;}
@@ -99,9 +109,16 @@
     padding:16px;gap:12px;
   }
   #albumTitle{font-size:19px;font-weight:900;color:var(--ink);text-align:center;letter-spacing:.2em;}
-  #albumGrid{
+  #albumGrid, .albumGridBase{
     display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));
     gap:10px;overflow-y:auto;padding:4px;touch-action:pan-y;
+  }
+  .albumSection{
+    font-size:13px;font-weight:900;color:#a89a80;text-align:center;letter-spacing:.1em;
+  }
+  .origName{
+    position:absolute;bottom:2px;left:0;right:0;text-align:center;
+    font-size:11px;font-weight:800;color:var(--ink);pointer-events:none;
   }
   .albumItem{position:relative;background:#fff;border:3px solid #ded6c2;border-radius:14px;
     aspect-ratio:1;display:flex;align-items:center;justify-content:center;padding:8px;}
@@ -130,18 +147,26 @@
   <div id="magicBanner">🪄 へんしんさせたい キャラを タッチしてね!</div>
 
   <div id="pad">
-    <div id="padTitle">✏️ おえかきちょう ✏️</div>
-    <div id="drawWrap">
-      <canvas id="drawCanvas"></canvas>
-      <div id="hint">ここに かいてね!</div>
+    <div id="padBox">
+      <div id="padHead">
+        <div id="padTitle">✏️ おえかきちょう ✏️ <span id="padVer">v6</span></div>
+        <button id="padClose">✕</button>
+      </div>
+      <div id="drawWrap">
+        <canvas id="drawCanvas"></canvas>
+        <div id="hint">ここに かいてね!</div>
+      </div>
+      <div id="tools"></div>
+      <button id="birthBtn">うまれる!!</button>
     </div>
-    <div id="tools"></div>
-    <button id="birthBtn">うまれる!!</button>
   </div>
 
   <div id="album">
     <div id="albumPanel">
       <div id="albumTitle">📖 らくがき ずかん 📖</div>
+      <div class="albumSection">⭐ オリジナルの なかま ⭐</div>
+      <div id="origGrid" class="albumGridBase"></div>
+      <div class="albumSection">✏️ じぶんの らくがき ✏️</div>
       <div id="albumGrid"></div>
       <button id="albumClose">とじる</button>
     </div>
@@ -180,11 +205,13 @@ window.addEventListener("resize", resizeWorld);
 resizeWorld();
 
 /* おえかきキャンバス(論理サイズ固定) */
-const DW = 440, DH = 300;
+const DW = 520, DH = 360;
 function sizeDrawCanvas(){
-  /* 隅の丸ボタン(左右各~90px)と重ならない幅に制限する */
-  const maxW = Math.min(window.innerWidth * 0.9 - 30, window.innerWidth - 190, 440);
-  const cssW = Math.max(220, maxW);
+  /* 全画面モーダル内で、画面に収まる最大サイズ */
+  let cssW = Math.min(window.innerWidth - 70, 620);
+  const maxH = window.innerHeight - 300; // タイトル+ツール+ボタン分を確保
+  if(cssW * (DH/DW) > maxH) cssW = maxH * (DW/DH);
+  cssW = Math.max(220, cssW);
   drawCv.style.width = cssW + "px";
   drawCv.style.height = cssW * (DH / DW) + "px";
 }
@@ -367,6 +394,126 @@ function addToZukan(dataURL, w, h){
   saveZukan(arr);
 }
 
+/* ================= オリジナルの なかま ================= */
+function makeSprite(drawFn){
+  const S = 220;
+  const cv2 = document.createElement("canvas");
+  cv2.width = S; cv2.height = S;
+  const g = cv2.getContext("2d");
+  g.lineCap = "round"; g.lineJoin = "round";
+  drawFn(g, S);
+  return cv2;
+}
+function crayonCircle(g, x, y, r, col, lw){
+  g.strokeStyle = col; g.lineWidth = lw;
+  g.beginPath();
+  const N = 40;
+  for(let i=0;i<=N;i++){
+    const a = i/N*Math.PI*2;
+    const rr = r*(1 + 0.04*Math.sin(a*3+1) + (Math.random()*0.02-0.01));
+    const px = x + Math.cos(a)*rr, py = y + Math.sin(a)*rr;
+    if(i===0) g.moveTo(px,py); else g.lineTo(px,py);
+  }
+  g.closePath(); g.stroke();
+}
+function dotEyes(g, x, y, gap, r){
+  g.fillStyle = "#3B3B3B";
+  g.beginPath(); g.arc(x-gap, y, r, 0, Math.PI*2); g.fill();
+  g.beginPath(); g.arc(x+gap, y, r, 0, Math.PI*2); g.fill();
+}
+function smileMouth(g, x, y, r){
+  g.strokeStyle = "#3B3B3B"; g.lineWidth = 8;
+  g.beginPath(); g.arc(x, y, r, 0.15*Math.PI, 0.85*Math.PI); g.stroke();
+}
+const ORIGINALS = [
+  { name:"にこまる", move:"bounce", trail:"none",    acc:"none",   voice:"high", aura:"gold",
+    line:"にこまるだよ! ジャンプ とくい!",
+    draw:(g,S)=>{ g.fillStyle="#FFE066"; g.beginPath(); g.arc(S/2,S/2,S*0.34,0,Math.PI*2); g.fill();
+      crayonCircle(g,S/2,S/2,S*0.34,"#E8A93C",12); dotEyes(g,S/2,S*0.43,S*0.12,9); smileMouth(g,S/2,S*0.5,S*0.13);
+      g.fillStyle="rgba(255,140,160,.6)"; g.beginPath(); g.arc(S*0.32,S*0.55,12,0,Math.PI*2); g.arc(S*0.68,S*0.55,12,0,Math.PI*2); g.fill(); } },
+  { name:"おばけちゃん", move:"fly", trail:"sparkle", acc:"none",  voice:"mid", aura:"blue",
+    line:"おばけちゃんだよ〜 ふわふわ〜",
+    draw:(g,S)=>{ g.fillStyle="#FFF"; g.strokeStyle="#9FA8C9"; g.lineWidth=10;
+      g.beginPath(); g.arc(S/2,S*0.42,S*0.28,Math.PI,0); 
+      g.lineTo(S*0.78,S*0.74);
+      for(let i=0;i<4;i++){ g.quadraticCurveTo(S*(0.71-i*0.14),S*(i%2?0.68:0.82),S*(0.64-i*0.14),S*0.74); }
+      g.closePath(); g.fill(); g.stroke();
+      dotEyes(g,S/2,S*0.42,S*0.1,10);
+      g.fillStyle="#3B3B3B"; g.beginPath(); g.ellipse(S/2,S*0.55,10,14,0,0,Math.PI*2); g.fill(); } },
+  { name:"ろぼたん", move:"zigzag", trail:"none",    acc:"none",   voice:"low", aura:"none",
+    line:"ろぼたん、しゅつどう! ウィーン!",
+    draw:(g,S)=>{ g.fillStyle="#C9D6E8"; g.strokeStyle="#5A7A9C"; g.lineWidth=10;
+      g.beginPath(); g.rect(S*0.24,S*0.3,S*0.52,S*0.46); g.fill(); g.stroke();
+      g.beginPath(); g.moveTo(S/2,S*0.3); g.lineTo(S/2,S*0.16); g.stroke();
+      g.fillStyle="#FF6B6B"; g.beginPath(); g.arc(S/2,S*0.14,10,0,Math.PI*2); g.fill();
+      g.fillStyle="#3B3B3B"; g.fillRect(S*0.33,S*0.42,S*0.1,S*0.1); g.fillRect(S*0.57,S*0.42,S*0.1,S*0.1);
+      g.strokeStyle="#3B3B3B"; g.lineWidth=7; g.beginPath(); g.moveTo(S*0.38,S*0.64); g.lineTo(S*0.62,S*0.64); g.stroke(); } },
+  { name:"ほしのこ", move:"spin", trail:"rainbow",   acc:"none",   voice:"high", aura:"gold",
+    line:"ほしのこだよ! ぐるぐる きらきら!",
+    draw:(g,S)=>{ g.fillStyle="#FFD24C"; g.strokeStyle="#E8A93C"; g.lineWidth=10;
+      g.beginPath();
+      for(let i=0;i<10;i++){ const a=-Math.PI/2+i*Math.PI/5; const r=i%2===0?S*0.38:S*0.17;
+        const px=S/2+Math.cos(a)*r, py=S*0.52+Math.sin(a)*r;
+        if(i===0)g.moveTo(px,py); else g.lineTo(px,py); }
+      g.closePath(); g.fill(); g.stroke();
+      dotEyes(g,S/2,S*0.48,S*0.08,8); smileMouth(g,S/2,S*0.53,S*0.08); } },
+  { name:"ねこすけ", move:"run", trail:"none",       acc:"ribbon", voice:"mid", aura:"none",
+    line:"ねこすけ! はしるの はやいよ にゃ!",
+    draw:(g,S)=>{ g.fillStyle="#FFB56B"; g.beginPath(); g.arc(S/2,S*0.55,S*0.3,0,Math.PI*2); g.fill();
+      g.beginPath(); g.moveTo(S*0.3,S*0.38); g.lineTo(S*0.34,S*0.16); g.lineTo(S*0.48,S*0.32); g.closePath();
+      g.moveTo(S*0.7,S*0.38); g.lineTo(S*0.66,S*0.16); g.lineTo(S*0.52,S*0.32); g.closePath(); g.fill();
+      crayonCircle(g,S/2,S*0.55,S*0.3,"#D98B3C",10);
+      dotEyes(g,S/2,S*0.5,S*0.11,8);
+      g.fillStyle="#FF8FA5"; g.beginPath(); g.moveTo(S/2-7,S*0.58); g.lineTo(S/2+7,S*0.58); g.lineTo(S/2,S*0.63); g.closePath(); g.fill();
+      g.strokeStyle="#D98B3C"; g.lineWidth=5;
+      for(const sd of [-1,1]){ for(let k=0;k<2;k++){
+        g.beginPath(); g.moveTo(S/2+sd*S*0.14,S*(0.58+k*0.03)); g.lineTo(S/2+sd*S*0.32,S*(0.56+k*0.05)); g.stroke(); } } } },
+  { name:"かえるん", move:"bounce", trail:"bubbles", acc:"none",   voice:"mid", aura:"none",
+    line:"かえるん! ぴょーんと いくよ!",
+    draw:(g,S)=>{ g.fillStyle="#8ED081"; g.beginPath(); g.ellipse(S/2,S*0.58,S*0.32,S*0.26,0,0,Math.PI*2); g.fill();
+      g.beginPath(); g.arc(S*0.36,S*0.32,S*0.11,0,Math.PI*2); g.arc(S*0.64,S*0.32,S*0.11,0,Math.PI*2); g.fill();
+      crayonCircle(g,S/2,S*0.58,S*0.3,"#5FA84C",10);
+      g.fillStyle="#FFF"; g.beginPath(); g.arc(S*0.36,S*0.31,13,0,Math.PI*2); g.arc(S*0.64,S*0.31,13,0,Math.PI*2); g.fill();
+      g.fillStyle="#3B3B3B"; g.beginPath(); g.arc(S*0.36,S*0.31,6,0,Math.PI*2); g.arc(S*0.64,S*0.31,6,0,Math.PI*2); g.fill();
+      smileMouth(g,S/2,S*0.55,S*0.14); } },
+  { name:"はーとん", move:"fly", trail:"sparkle",    acc:"halo",   voice:"high", aura:"pink",
+    line:"はーとんだよ! だいすきを とどけるの!",
+    draw:(g,S)=>{ g.fillStyle="#FF8FA5"; g.strokeStyle="#E85C7A"; g.lineWidth=10;
+      g.beginPath();
+      g.moveTo(S/2, S*0.78);
+      g.bezierCurveTo(S*0.1,S*0.5, S*0.22,S*0.18, S/2,S*0.36);
+      g.bezierCurveTo(S*0.78,S*0.18, S*0.9,S*0.5, S/2,S*0.78);
+      g.closePath(); g.fill(); g.stroke();
+      dotEyes(g,S/2,S*0.45,S*0.09,8); smileMouth(g,S/2,S*0.5,S*0.08); } },
+  { name:"どらちび", move:"fly", trail:"rainbow",    acc:"horns",  voice:"low", aura:"none",
+    line:"どらちびだ! ちいさな ドラゴンだぞ!",
+    draw:(g,S)=>{ g.fillStyle="#7FD0C9"; g.beginPath(); g.ellipse(S/2,S*0.55,S*0.28,S*0.3,0,0,Math.PI*2); g.fill();
+      g.fillStyle="#B8E8E3"; g.beginPath(); g.ellipse(S/2,S*0.64,S*0.14,S*0.18,0,0,Math.PI*2); g.fill();
+      crayonCircle(g,S/2,S*0.55,S*0.29,"#4A9A92",10);
+      g.fillStyle="#7FD0C9"; g.strokeStyle="#4A9A92"; g.lineWidth=8;
+      for(const sd of [-1,1]){ g.beginPath();
+        g.moveTo(S/2+sd*S*0.24,S*0.42); g.quadraticCurveTo(S/2+sd*S*0.46,S*0.28,S/2+sd*S*0.42,S*0.5);
+        g.closePath(); g.fill(); g.stroke(); }
+      dotEyes(g,S/2,S*0.48,S*0.1,8);
+      g.fillStyle="#3B3B3B"; g.beginPath(); g.ellipse(S/2,S*0.58,8,10,0,0,Math.PI*2); g.fill(); } }
+];
+const origSprites = ORIGINALS.map(o=>null);
+function getOrigSprite(i){
+  if(!origSprites[i]) origSprites[i] = makeSprite(ORIGINALS[i].draw);
+  return origSprites[i];
+}
+function summonOriginal(i){
+  const o = ORIGINALS[i];
+  const sp = getOrigSprite(i);
+  const c = spawnChar(sp, 110, 110);
+  c.name = o.name;
+  c.move = o.move; c.trail = o.trail; c.acc = o.acc; c.aura = o.aura;
+  c.pitch = o.voice === "low" ? 0.55 : (o.voice === "high" ? 1.9 : 1.1);
+  if(c.move === "fly") c.altitude = 110 + Math.random()*90;
+  sndBirth();
+  setTimeout(()=>speak(c, o.line), 600);
+}
+
 const album = document.getElementById("album");
 const albumGrid = document.getElementById("albumGrid");
 document.getElementById("albumBtn").addEventListener("click", ()=>{
@@ -377,7 +524,26 @@ document.getElementById("albumClose").addEventListener("click", ()=>{
 });
 album.addEventListener("pointerdown", e=>{ if(e.target === album) album.classList.remove("show"); });
 
+const origGrid = document.getElementById("origGrid");
+let origBuilt = false;
+function renderOriginals(){
+  if(origBuilt) return;
+  origBuilt = true;
+  ORIGINALS.forEach((o, i)=>{
+    const cell = document.createElement("div");
+    cell.className = "albumItem";
+    const img = document.createElement("img");
+    img.src = getOrigSprite(i).toDataURL("image/png");
+    const nm = document.createElement("div");
+    nm.className = "origName";
+    nm.textContent = o.name;
+    cell.append(img, nm);
+    cell.onclick = ()=>{ summonOriginal(i); album.classList.remove("show"); };
+    origGrid.appendChild(cell);
+  });
+}
 function renderAlbum(){
+  renderOriginals();
   albumGrid.innerHTML = "";
   const arr = loadZukan();
   if(!arr.length){
@@ -443,6 +609,8 @@ function spawnChar(imgSource, logicalW, logicalH){
     limbs: false,                    // 目と手足が生えているか
     acc: "none",                     // アクセサリー
     trail: "none",                   // 移動時のキラキラ軌跡
+    face: "none",                    // へんしん後の表情
+    aura: "none",                    // 背後のオーラ
     sizeMul: 1, w0: 0, h0: 0,        // へんしんによる大小変化
     spinPhase: 0,
     blinkT: 2 + Math.random()*3,
@@ -484,14 +652,16 @@ function birth(){
   const born = spawnChar(off, pw/DPR, ph/DPR);
   addToZukan(off.toDataURL("image/png"), pw/DPR, ph/DPR);
   sndBirth();
+  pad.classList.add("hidden"); /* とじて 誕生シーンを見せる */
   setTimeout(()=>speak(born, HELLO_LINES[Math.floor(Math.random()*HELLO_LINES.length)]), 700);
   strokes.length = 0; redraw();
 }
 document.getElementById("birthBtn").addEventListener("click", birth);
 
 function wobblePad(){
-  pad.animate([{transform:"translateX(-50%) rotate(0)"},{transform:"translateX(-52%) rotate(-1.5deg)"},
-    {transform:"translateX(-48%) rotate(1.5deg)"},{transform:"translateX(-50%) rotate(0)"}],{duration:250});
+  document.getElementById("padBox").animate(
+    [{transform:"rotate(0)"},{transform:"rotate(-1.5deg)"},{transform:"rotate(1.5deg)"},{transform:"rotate(0)"}],
+    {duration:250});
 }
 
 byeBtn.addEventListener("click", ()=>{
@@ -503,9 +673,15 @@ byeBtn.addEventListener("click", ()=>{
 
 togglePad.addEventListener("click", ()=>{
   sndPop();
-  pad.classList.toggle("hidden");
-  togglePad.textContent = pad.classList.contains("hidden") ? "🖍️" : "⬇️";
+  pad.classList.remove("hidden");
+  sizeDrawCanvas();
 });
+document.getElementById("padClose").addEventListener("click", ()=>{
+  sndPop();
+  pad.classList.add("hidden");
+});
+pad.addEventListener("pointerdown", e=>{ if(e.target === pad) pad.classList.add("hidden"); });
+togglePad.textContent = "🖍️";
 
 /* ================= 昼夜モード ================= */
 let nightTarget = 0, nightMix = 0;
@@ -772,16 +948,43 @@ function drawLimbs(c, night, legLen){
     pctx.lineTo(s*c.w*0.46 + Math.cos(a)*armLen*s, armY + Math.sin(Math.abs(a))*armLen*0.6 + 4);
     pctx.stroke();
   }
-  /* めだま(まばたき付き、夜は閉じる) */
+  /* めだま(表情バリエーション付き、夜は閉じる) */
   const er = Math.max(6, Math.min(15, Math.min(c.w, c.h)*0.11));
   const ey = -legLen - c.h*0.72;
   const blink = c.blinkT < 0;
+  const face = c.face || "none";
   for(const s of [-1, 1]){
     const ex = s*c.w*0.2;
-    if(night || blink){
+    if(night || blink || face === "sleepy"){
       pctx.lineWidth = 2.5;
       pctx.beginPath();
       pctx.arc(ex, ey, er*0.8, 0.15*Math.PI, 0.85*Math.PI);
+      pctx.stroke();
+      pctx.lineWidth = lw;
+    }else if(face === "star"){
+      pctx.fillStyle = "#FFC93C";
+      drawStar(pctx, ex, ey, er*1.1, c.t*2);
+      pctx.fillStyle = ink;
+    }else if(face === "heart"){
+      pctx.fillStyle = "#FF6FA5";
+      pctx.font = `900 ${Math.round(er*2.4)}px sans-serif`;
+      pctx.textAlign = "center";
+      pctx.fillText("♥", ex, ey + er*0.8);
+      pctx.fillStyle = ink;
+    }else if(face === "spiral"){
+      pctx.lineWidth = Math.max(2, er*0.28);
+      pctx.beginPath();
+      for(let a=0; a<Math.PI*4; a+=0.3){
+        const rr2 = er*0.95*a/(Math.PI*4);
+        const px2 = ex + Math.cos(a + c.t*4)*rr2, py2 = ey + Math.sin(a + c.t*4)*rr2;
+        if(a===0) pctx.moveTo(px2, py2); else pctx.lineTo(px2, py2);
+      }
+      pctx.stroke();
+      pctx.lineWidth = lw;
+    }else if(face === "laugh"){
+      pctx.lineWidth = Math.max(2.5, er*0.3);
+      pctx.beginPath();
+      pctx.arc(ex, ey + er*0.3, er*0.8, Math.PI*1.15, Math.PI*1.85);
       pctx.stroke();
       pctx.lineWidth = lw;
     }else{
@@ -794,7 +997,52 @@ function drawLimbs(c, night, legLen){
       pctx.beginPath();
       pctx.arc(ex + er*0.3, ey + Math.sin(c.t*2)*er*0.12, er*0.45, 0, Math.PI*2);
       pctx.fill();
+      if(face === "cool"){ /* きりっとした まゆげ */
+        pctx.lineWidth = Math.max(2.5, er*0.3);
+        pctx.beginPath();
+        pctx.moveTo(ex - er*0.9, ey - er*1.5);
+        pctx.lineTo(ex + er*0.9, ey - er*1.1);
+        pctx.stroke();
+        pctx.lineWidth = lw;
+      }
     }
+  }
+  /* くち(へんしん後だけ) */
+  if(!night){
+    const my2 = ey + er*2.2;
+    pctx.lineWidth = Math.max(2.5, er*0.3);
+    if(face === "laugh"){
+      pctx.fillStyle = "#D06258";
+      pctx.beginPath();
+      pctx.arc(0, my2 - er*0.3, er*1.0, 0.1*Math.PI, 0.9*Math.PI);
+      pctx.closePath(); pctx.fill(); pctx.stroke();
+    }else if(face === "tongue"){
+      pctx.beginPath();
+      pctx.arc(0, my2 - er*0.4, er*0.9, 0.15*Math.PI, 0.85*Math.PI);
+      pctx.stroke();
+      pctx.fillStyle = "#FF8FA5";
+      pctx.beginPath();
+      pctx.ellipse(er*0.3, my2 + er*0.3, er*0.42, er*0.6 + Math.sin(c.t*7)*er*0.1, 0, 0, Math.PI*2);
+      pctx.fill();
+    }else if(face === "cool"){
+      pctx.beginPath();
+      pctx.moveTo(-er*0.6, my2); pctx.lineTo(er*0.6, my2 - er*0.15);
+      pctx.stroke();
+    }else if(face === "spiral" || face === "star"){
+      pctx.fillStyle = "#D06258";
+      pctx.beginPath();
+      pctx.ellipse(0, my2, er*0.45, er*0.55, 0, 0, Math.PI*2);
+      pctx.fill();
+    }else if(face === "sleepy"){
+      pctx.beginPath();
+      pctx.ellipse(0, my2, er*0.3, er*0.35, 0, 0, Math.PI*2);
+      pctx.stroke();
+    }else if(face !== "none"){
+      pctx.beginPath();
+      pctx.arc(0, my2 - er*0.4, er*0.8, 0.15*Math.PI, 0.85*Math.PI);
+      pctx.stroke();
+    }
+    pctx.lineWidth = lw;
   }
 }
 
@@ -1070,6 +1318,18 @@ function loop(now){
     pctx.rotate(rot);
     pctx.scale((c.dragging ? 1 : c.dir) * sx, sq);
     const legLen = c.limbs ? Math.max(13, c.h*0.2) : 0;
+    if(c.aura && c.aura !== "none"){
+      const AURA_COL = { gold:"255,210,80", pink:"255,140,190", blue:"120,190,255" };
+      const col = AURA_COL[c.aura] || AURA_COL.gold;
+      const ar = Math.max(c.w, c.h)*0.72 + Math.sin(c.t*3)*5;
+      const g2 = pctx.createRadialGradient(0, -c.h/2 - legLen, ar*0.15, 0, -c.h/2 - legLen, ar);
+      g2.addColorStop(0, `rgba(${col},0.5)`);
+      g2.addColorStop(1, `rgba(${col},0)`);
+      pctx.fillStyle = g2;
+      pctx.beginPath();
+      pctx.arc(0, -c.h/2 - legLen, ar, 0, Math.PI*2);
+      pctx.fill();
+    }
     if(c.acc === "cape") drawCape(c, legLen);
     pctx.drawImage(c.img, -c.w/2, -c.h - legLen, c.w, c.h);
     if(c.limbs) drawLimbs(c, night, legLen);
@@ -1222,6 +1482,8 @@ const ACCS = ["crown","ribbon","glasses","mustache","wizard","halo","horns","cap
 const TRAILS = ["rainbow","sparkle","bubbles"];
 const MOVE_LINE = { hop:"ぴょんぴょん!", run:"はしるの だいすき!", fly:"そらを とべるよ!",
   bounce:"おおジャンプ!", spin:"ぐるぐる〜!", zigzag:"ジグザグ ダッシュ!" };
+const FACES = ["smile","laugh","tongue","cool","sleepy","star","heart","spiral"];
+const AURAS = ["gold","pink","blue"];
 
 function applyTransform(c, opt){
   /* ドロン!の煙と音 */
@@ -1241,6 +1503,10 @@ function applyTransform(c, opt){
   c.trail = (opt.trail && (TRAILS.includes(opt.trail) || opt.trail === "none")) ? opt.trail : "none";
   /* こえの高さ */
   c.pitch = opt.voice === "low" ? 0.55 : (opt.voice === "high" ? 1.9 : 1.1);
+  /* 表情とオーラ */
+  c.face = (opt.face && (FACES.includes(opt.face) || opt.face === "none")) ? opt.face : "smile";
+  if(c.move === "spin" && (!opt.face || opt.face === "none")) c.face = "spiral";
+  c.aura = (opt.aura && (AURAS.includes(opt.aura) || opt.aura === "none")) ? opt.aura : "none";
   c.spinPhase = 0;
   c.flyP = 0;
   if(c.move === "fly") c.altitude = 110 + Math.random()*90;
@@ -1259,6 +1525,8 @@ function offlineTransform(c){
     size: Math.random() < 0.22 ? "big" : (Math.random() < 0.28 ? "small" : "normal"),
     acc: Math.random() < 0.78 ? pick(ACCS) : "none",
     trail: Math.random() < 0.62 ? pick(TRAILS) : "none",
+    face: pick(FACES),
+    aura: Math.random() < 0.45 ? pick(AURAS) : "none",
     voice: pick(["low","mid","high"])
   };
   applyTransform(c, opt);

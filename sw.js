@@ -13,7 +13,7 @@
  *   これを忘れると、利用者には古いキャッシュが配られ続ける。
  * ============================================================ */
 
-const CACHE_VERSION = "rakugaki-land-v5";
+const CACHE_VERSION = "rakugaki-land-v6";
 
 /* オフラインで動くために必要なファイル一覧(プリキャッシュ対象) */
 const ASSETS = [
